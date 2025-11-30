@@ -51,6 +51,7 @@
         .player-svg {
             transition: opacity 120ms linear;
             will-change: transform, opacity;
+            transform: translate3d(0,0,0);
             -webkit-transform: translate3d(0,0,0);
         }
         /* store card styles */
@@ -420,7 +421,8 @@
         function resizeCanvas() {
             const container = document.getElementById('gameContainer');
             // support high-DPI screens: scale backing store by devicePixelRatio
-            const ratio = Math.max(1, window.devicePixelRatio || 1);
+            const rawDPR = Math.max(1, window.devicePixelRatio || 1);
+            const ratio = Math.max(1, Math.min(rawDPR, quality.devicePixelRatioCap || rawDPR));
             const width = container.clientWidth;
             const height = container.clientHeight;
             // set CSS size
@@ -435,8 +437,6 @@
             GW = width;
             GH = height;
         }
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
 
         // Game configuration
         const config = {
@@ -448,6 +448,33 @@
             playerX: 150,
             playerSize: 40
         };
+
+        // Mobile / quality detection
+        function isMobileDevice() {
+            try {
+                return (('ontouchstart' in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || /Mobi|Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
+            } catch (e) { return false; }
+        }
+
+        const quality = {
+            isMobile: isMobileDevice(),
+            maxParticles: isMobileDevice() ? 80 : 250,
+            ambientCount: isMobileDevice() ? 20 : 50,
+            maxDebris: isMobileDevice() ? 20 : 60,
+            useShadows: !isMobileDevice(),
+            devicePixelRatioCap: isMobileDevice() ? Math.min(1.5, window.devicePixelRatio || 1) : Math.min(2, window.devicePixelRatio || 1)
+        };
+
+        // Helper to safely add particles under a budget
+        function pushParticle(p) {
+            try {
+                if (particles.length < quality.maxParticles) particles.push(p);
+            } catch (e) {}
+        }
+
+        // Now that `quality` is available, perform an initial resize and attach resize handler
+        try { resizeCanvas(); } catch (e) {}
+        window.addEventListener('resize', resizeCanvas);
 
         // Small helpers
         function lerp(a, b, t) { return a + (b - a) * t; }
@@ -526,36 +553,24 @@
                 this.prevVelocity = 0;
                 this.satchelAngle = 0;
 
-                // SVG overlay setup (preferred immediately; falls back to canvas if error)
+                // Use a preloaded Image and draw the sprite to the canvas each frame for smoother mobile performance.
                 try {
-                    this.svgEl = document.createElement('img');
-                    this.svgEl.className = 'player-svg';
-                    this.svgEl.style.position = 'absolute';
-                    this.svgEl.style.pointerEvents = 'none';
-                    this.svgEl.style.transformOrigin = '50% 50%';
-                    this.svgEl.style.opacity = '0';
-                    this.svgPreferred = true; // prefer overlay when available
-                    this.svgLoaded = false;
-                    this.currentSprite = null;
-
-                    this.svgEl.onload = () => {
-                        this.svgLoaded = true;
-                        try { this.svgEl.style.opacity = '1'; } catch (e) {}
-                    };
-                    this.svgEl.onerror = () => { try { this.svgEl.parentNode && this.svgEl.parentNode.removeChild(this.svgEl); } catch (e){}; this.svgEl = null; this.svgLoaded = false; this.svgPreferred = false; };
-
-                    // initialize to selected character (fallback to classic)
                     const sel = getSelectedChar();
                     const ch = characters.find(c => c.id === sel) || characters[0];
-                    const initial = (imageCache[ch.run] && imageCache[ch.run].src) ? imageCache[ch.run].src : (ch.run || 'characterrun.svg');
-                    this.currentSprite = initial;
-                    this.svgEl.src = initial;
-                    const container = document.getElementById('gameContainer');
-                    if (container) container.appendChild(this.svgEl);
+                    const cached = imageCache[ch.run];
+                    if (cached) {
+                        this.img = cached;
+                        this.imgLoaded = !!cached.complete;
+                    } else {
+                        this.img = new Image();
+                        this.img.src = ch.run || 'characterrun.svg';
+                        this.img.onload = () => { this.imgLoaded = true; };
+                    }
+                    this.currentSprite = ch.run || 'characterrun.svg';
                 } catch (e) {
-                    this.svgEl = null;
-                    this.svgPreferred = false;
-                    this.svgLoaded = false;
+                    this.img = null;
+                    this.imgLoaded = false;
+                    this.currentSprite = null;
                 }
             }
 
@@ -582,7 +597,7 @@
                     const impact = this.velocity;
                     if (impact > 2.5) {
                         for (let i = 0; i < 10; i++) {
-                            particles.push(new Particle(this.x + (Math.random() - 0.5) * 24, groundY + 6 + Math.random() * 6, 'smoke'));
+                            pushParticle(new Particle(this.x + (Math.random() - 0.5) * 24, groundY + 6 + Math.random() * 6, 'smoke'));
                         }
                     }
                     this.y = groundY;
@@ -591,40 +606,26 @@
 
                 this.prevVelocity = this.velocity;
 
-                // Update SVG overlay position/rotation/size if present
-                if (this.svgEl && this.svgEl.parentNode) {
-                    const w = this.size * 1.8;
-                    const h = this.size * 1.8;
-                    this.svgEl.style.width = w + 'px';
-                    this.svgEl.style.height = h + 'px';
-                    this.svgEl.style.left = (this.x - w / 2) + 'px';
-                    this.svgEl.style.top = (this.y - h / 2) + 'px';
-                    const deg = this.rotation;
-                    this.svgEl.style.transform = `translate(0px,0px) rotate(${deg}deg)`;
-                    // switch sprite based on flying state
-                    const sel = getSelectedChar();
-                    const ch = characters.find(c => c.id === sel) || characters[0];
-                    const desired = this.jetpackActive ? (ch.fly || 'characterfly.svg') : (ch.run || 'characterrun.svg');
-                    // If desired sprite changed, attempt to swap using the preloaded cache when possible
-                    if (this.currentSprite !== desired) {
-                        this.currentSprite = desired;
-                        const cached = imageCache[desired];
-                        if (cached && cached.complete) {
-                            // immediate swap (cached)
-                            try { this.svgEl.style.opacity = '1'; } catch (e) {}
-                            this.svgLoaded = true;
-                            this.svgEl.src = cached.src;
-                        } else {
-                            // not cached/decoded yet: hide until loaded to avoid showing a mismatched frame
-                            this.svgLoaded = false;
-                            try { this.svgEl.style.opacity = '0'; } catch (e) {}
-                            this.svgEl.src = desired;
-                        }
+                // update desired sprite (use cached images when available)
+                const sel = getSelectedChar();
+                const ch = characters.find(c => c.id === sel) || characters[0];
+                const desired = this.jetpackActive ? (ch.fly || 'characterfly.svg') : (ch.run || 'characterrun.svg');
+                if (this.currentSprite !== desired) {
+                    this.currentSprite = desired;
+                    const cached = imageCache[desired];
+                    if (cached) {
+                        this.img = cached;
+                        this.imgLoaded = !!cached.complete;
+                    } else {
+                        this.img = new Image();
+                        this.imgLoaded = false;
+                        this.img.src = desired;
+                        this.img.onload = () => { this.imgLoaded = true; };
                     }
                 }
 
-                // If SVG overlay is preferred, clear any existing 'streak' particles so no blue lines remain
-                if (this.svgPreferred) {
+                // If using image drawing, optionally clear streak particles to reduce visual clutter
+                if (this.img) {
                     for (let i = particles.length - 1; i >= 0; i--) {
                         if (particles[i].type === 'streak') particles.splice(i, 1);
                     }
@@ -653,8 +654,16 @@
                 const targetSatchel = -this.velocity * 1.6; // degrees
                 this.satchelAngle = lerp(this.satchelAngle, targetSatchel, 0.12);
 
-                // Draw archaeologist body (canvas fallback only)
-                if (!this.svgLoaded) {
+                // Draw archaeologist body (canvas fallback only) or draw sprite image when ready
+                if (this.img && this.imgLoaded) {
+                    const w = this.size * 1.8;
+                    const h = this.size * 1.8;
+                    try {
+                        ctx.drawImage(this.img, -w/2, -h/2, w, h);
+                    } catch (e) {
+                        this._drawVectorBody(ctx);
+                    }
+                } else {
                     ctx.fillStyle = '#C19A6B';
                     ctx.fillRect(-8, -5, 16, 18);
 
@@ -692,6 +701,8 @@
                     ctx.fillRect(-6, 13, 5, 8);
                     ctx.fillRect(1, 13, 5, 8);
                 }
+
+                // helper: vector fallback drawing (kept inline for simplicity)
 
                 ctx.restore();
             }
@@ -907,8 +918,21 @@
                 this.speed = 4;
                 this.rotation = 0;
                 this.scored = false;
-                // Missiles are drawn on the canvas for better performance on mobile
-                this.svgEl = null;
+                // Use preloaded image to render missile on canvas (keeps DOM light)
+                try {
+                    const cached = imageCache['svgfile.svg'];
+                    if (cached) {
+                        this.img = cached;
+                        this.imgLoaded = !!cached.complete;
+                    } else {
+                        this.img = new Image();
+                        this.img.src = 'svgfile.svg';
+                        this.img.onload = () => { this.imgLoaded = true; };
+                    }
+                } catch (e) {
+                    this.img = null;
+                    this.imgLoaded = false;
+                }
             }
 
             update() {
@@ -918,47 +942,40 @@
                     this.y += dy * 0.02;
                     this.rotation = Math.atan2(dy, -this.speed);
                 }
-                // Update overlayed SVG element position/rotation/size (if present)
-                if (this.svgEl && this.svgEl.parentNode) {
-                    // Canvas and container may be scaled; position relative to container
-                    const container = document.getElementById('gameContainer');
-                    // Ensure element size roughly matches missile.size
-                    const w = this.size * 2;
-                    const h = this.size * 2;
-                    this.svgEl.style.width = w + 'px';
-                    this.svgEl.style.height = h + 'px';
-                    // Place centered over the missile's canvas coordinates (container is positioned)
-                    this.svgEl.style.left = (this.x - w / 2) + 'px';
-                    this.svgEl.style.top = (this.y - h / 2) + 'px';
-                    const deg = this.rotation * 180 / Math.PI;
-                    this.svgEl.style.transform = `rotate(${deg}deg)`;
-                }
+                // no DOM overlay to update when drawing to canvas
             }
 
             draw() {
-                // If SVG overlay exists, skip canvas body drawing (SVG provides visual)
-                if (this.svgEl && this.svgEl.parentNode) {
-                    // canvas drawing intentionally omitted when using SVG overlay
+                // Draw using preloaded image when available, otherwise fallback to vector
+                if (this.img && this.imgLoaded) {
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(this.rotation);
+                    const w = this.size * 2;
+                    const h = this.size * 2;
+                    try {
+                        ctx.drawImage(this.img, -w/2, -h/2, w, h);
+                    } catch (e) {
+                        // fallback vector body
+                        ctx.fillStyle = '#8B0000';
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, this.size, this.size * 0.7, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.restore();
                 } else {
                     ctx.save();
                     ctx.translate(this.x, this.y);
                     ctx.rotate(this.rotation);
-                    
-                    // Make missile look more obviously dangerous (red aura + skull)
-                    ctx.shadowBlur = 18;
+                    ctx.shadowBlur = quality.useShadows ? 18 : 0;
                     ctx.shadowColor = 'rgba(255,40,40,0.8)';
-
                     const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size);
                     gradient.addColorStop(0, '#8B0000');
                     gradient.addColorStop(1, '#4B0000');
                     ctx.fillStyle = gradient;
-
-                    // Body
                     ctx.beginPath();
                     ctx.ellipse(0, 0, this.size, this.size * 0.7, 0, 0, Math.PI * 2);
                     ctx.fill();
-
-                    // Dangerous wings/flames
                     ctx.fillStyle = 'rgba(255,80,0,0.9)';
                     ctx.beginPath();
                     ctx.ellipse(-this.size * 0.5, 0, this.size * 0.6, this.size * 0.3, -0.3, 0, Math.PI * 2);
@@ -966,23 +983,17 @@
                     ctx.beginPath();
                     ctx.ellipse(this.size * 0.5, 0, this.size * 0.6, this.size * 0.3, 0.3, 0, Math.PI * 2);
                     ctx.fill();
-
-                    // Missile marker simplified (no skull) - keep red aura and trail for danger
-
                     ctx.restore();
                 }
 
-                // Stronger trail particles to highlight danger
                 if (frameCount % 2 === 0) {
-                    particles.push(new Particle(this.x + 6, this.y, 'shatter'));
+                    pushParticle(new Particle(this.x + 6, this.y, 'shatter'));
                 }
             }
 
             cleanup() {
-                try {
-                    if (this.svgEl && this.svgEl.parentNode) this.svgEl.parentNode.removeChild(this.svgEl);
-                } catch (e) {}
-                this.svgEl = null;
+                // No DOM overlays used for missiles now; release image reference
+                try { this.img = null; } catch (e) {}
             }
 
             isOffScreen() {
@@ -1359,7 +1370,8 @@
         // Initialize ambient particles
         function initAmbientParticles() {
             ambientParticles = [];
-            for (let i = 0; i < 50; i++) {
+            const count = quality.ambientCount || 50;
+            for (let i = 0; i < count; i++) {
                 ambientParticles.push(new AmbientParticle());
             }
         }
@@ -1560,7 +1572,7 @@
             const cy = (player && typeof player.y === 'number') ? player.y : GH / 2;
             const spread = (player && player.size) ? player.size : 30;
             for (let i = 0; i < 24; i++) {
-                particles.push(new Particle(
+                pushParticle(new Particle(
                     cx + (Math.random() - 0.5) * spread,
                     cy + (Math.random() - 0.5) * spread,
                     'shatter'
@@ -1781,8 +1793,8 @@
             activePowerups[type] = powerupDurations[type] || 360;
 
             // Visual burst
-            for (let j = 0; j < 15; j++) {
-                particles.push(new Particle(player.x + 10, player.y, 'gold'));
+                for (let j = 0; j < 15; j++) {
+                pushParticle(new Particle(player.x + 10, player.y, 'gold'));
             }
 
             // Apply immediate effects for speed (only once)
@@ -2042,7 +2054,7 @@
                             addToSavedTotal(collectibles[i].value || 1);
                         // Sparkle effect
                         for (let j = 0; j < 8; j++) {
-                            particles.push(new Particle(collectibles[i].x, collectibles[i].y, 'gold'));
+                            pushParticle(new Particle(collectibles[i].x, collectibles[i].y, 'gold'));
                         }
                     }
                 }
@@ -2211,12 +2223,12 @@
                 const p = new Particle(cx + (Math.random() - 0.5) * 40, cy + (Math.random() - 0.5) * 40, 'shatter', col);
                 p.vx += (Math.random() - 0.5) * 8;
                 p.vy += (Math.random() - 0.5) * 8 - 2;
-                particles.push(p);
+                pushParticle(p);
             }
 
             // smoke and dust cloud
             for (let i = 0; i < 18; i++) {
-                particles.push(new Particle(cx + (Math.random() - 0.5) * 60, cy + (Math.random() - 0.5) * 20, 'smoke'));
+                pushParticle(new Particle(cx + (Math.random() - 0.5) * 60, cy + (Math.random() - 0.5) * 20, 'smoke'));
             }
 
             // Debris pieces that fall (exact color match with slight variation)
@@ -2283,7 +2295,7 @@
                 const dust = new Particle(dx, groundY - 6, 'shatter');
                 dust.vx *= 0.7;
                 dust.vy = -(Math.random() * 2 + 1);
-                particles.push(dust);
+                pushParticle(dust);
             }
 
             // camera shake + flash (shorter, snappier flash)
