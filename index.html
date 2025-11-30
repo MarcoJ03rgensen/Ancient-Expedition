@@ -47,6 +47,12 @@
             -webkit-user-drag: none;
         }
 
+        /* Hint browser to composite transforms/opacities on GPU and smooth opacity swaps */
+        .player-svg {
+            transition: opacity 120ms linear;
+            will-change: transform, opacity;
+            -webkit-transform: translate3d(0,0,0);
+        }
         /* store card styles */
         .store-card {
             background: rgba(36, 26, 18, 0.9);
@@ -527,14 +533,23 @@
                     this.svgEl.style.position = 'absolute';
                     this.svgEl.style.pointerEvents = 'none';
                     this.svgEl.style.transformOrigin = '50% 50%';
-                    this.svgPreferred = true; // suppress canvas wings immediately
+                    this.svgEl.style.opacity = '0';
+                    this.svgPreferred = true; // prefer overlay when available
                     this.svgLoaded = false;
-                    this.svgEl.onload = () => { this.svgLoaded = true; };
+                    this.currentSprite = null;
+
+                    this.svgEl.onload = () => {
+                        this.svgLoaded = true;
+                        try { this.svgEl.style.opacity = '1'; } catch (e) {}
+                    };
                     this.svgEl.onerror = () => { try { this.svgEl.parentNode && this.svgEl.parentNode.removeChild(this.svgEl); } catch (e){}; this.svgEl = null; this.svgLoaded = false; this.svgPreferred = false; };
+
                     // initialize to selected character (fallback to classic)
                     const sel = getSelectedChar();
                     const ch = characters.find(c => c.id === sel) || characters[0];
-                    this.svgEl.src = ch.run || 'characterrun.svg';
+                    const initial = (imageCache[ch.run] && imageCache[ch.run].src) ? imageCache[ch.run].src : (ch.run || 'characterrun.svg');
+                    this.currentSprite = initial;
+                    this.svgEl.src = initial;
                     const container = document.getElementById('gameContainer');
                     if (container) container.appendChild(this.svgEl);
                 } catch (e) {
@@ -590,9 +605,21 @@
                     const sel = getSelectedChar();
                     const ch = characters.find(c => c.id === sel) || characters[0];
                     const desired = this.jetpackActive ? (ch.fly || 'characterfly.svg') : (ch.run || 'characterrun.svg');
-                    if (!this.svgEl.src || !this.svgEl.src.endsWith(desired)) {
-                        this.svgLoaded = false;
-                        this.svgEl.src = desired;
+                    // If desired sprite changed, attempt to swap using the preloaded cache when possible
+                    if (this.currentSprite !== desired) {
+                        this.currentSprite = desired;
+                        const cached = imageCache[desired];
+                        if (cached && cached.complete) {
+                            // immediate swap (cached)
+                            try { this.svgEl.style.opacity = '1'; } catch (e) {}
+                            this.svgLoaded = true;
+                            this.svgEl.src = cached.src;
+                        } else {
+                            // not cached/decoded yet: hide until loaded to avoid showing a mismatched frame
+                            this.svgLoaded = false;
+                            try { this.svgEl.style.opacity = '0'; } catch (e) {}
+                            this.svgEl.src = desired;
+                        }
                     }
                 }
 
@@ -880,21 +907,8 @@
                 this.speed = 4;
                 this.rotation = 0;
                 this.scored = false;
-                // Create an overlayed SVG element for animated enemy visuals
-                try {
-                    this.svgEl = document.createElement('img');
-                    this.svgEl.src = 'svgfile.svg';
-                    this.svgEl.style.position = 'absolute';
-                    this.svgEl.style.pointerEvents = 'none';
-                    this.svgEl.style.width = (this.size * 2) + 'px';
-                    this.svgEl.style.height = (this.size * 2) + 'px';
-                    this.svgEl.style.transformOrigin = '50% 50%';
-                    this.svgEl.className = 'enemy-svg';
-                    const container = document.getElementById('gameContainer');
-                    if (container) container.appendChild(this.svgEl);
-                } catch (e) {
-                    this.svgEl = null;
-                }
+                // Missiles are drawn on the canvas for better performance on mobile
+                this.svgEl = null;
             }
 
             update() {
@@ -1569,6 +1583,35 @@
             { id: 'mystic', name: 'Mystic', run: 'mysticrun.svg', fly: 'mysticfly.svg', price: 8000 },
             { id: 'imperial', name: 'Imperial', run: 'imperialrun.svg', fly: 'imperialfly.svg', price: 10000 }
         ];
+
+        // Image cache used to preload common SVG assets (characters, enemies)
+        const imageCache = Object.create(null);
+
+        function preloadImages() {
+            const urls = new Set();
+            // gather character run/fly urls
+            for (const c of characters) {
+                if (c.run) urls.add(c.run);
+                if (c.fly) urls.add(c.fly);
+            }
+            // common enemy / misc svgs used as overlays
+            urls.add('svgfile.svg');
+
+            for (const u of urls) {
+                try {
+                    const img = new Image();
+                    img.src = u;
+                    imageCache[u] = img;
+                    // start decoding where supported to warm cache
+                    if (img.decode) img.decode().catch(() => {});
+                } catch (e) {
+                    // ignore preload errors
+                }
+            }
+        }
+
+        // Kick off preloading early
+        try { preloadImages(); } catch (e) {}
 
         function getUnlockedChars() {
             try {
