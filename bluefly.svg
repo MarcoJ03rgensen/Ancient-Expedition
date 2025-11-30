@@ -1,0 +1,33 @@
+<svg width="150" height="150" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                            <style>.v3f-bod{animation:hoverBody 2s infinite ease-in-out}.v3f-w1{animation:flapWing .2s infinite alternate ease-in-out}.v3f-w2{animation:flapWing .2s infinite alternate-reverse ease-in-out}</style>
+                            <defs><linearGradient id="g3" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#b3e5fc" stop-opacity=".9"></stop><stop offset="1" stop-color="#fff" stop-opacity="0"></stop></linearGradient><filter id="gl3"><feGaussianBlur stdDeviation="4"></feGaussianBlur><feMerge><feMergeNode></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter></defs>
+                            <g class="v3f-bod" transform="translate(10,10)">
+                                <g transform="rotate(-15,100,100)">
+                                    <g filter="url(#gl3)">
+                                        <path class="v3f-w1" style="transform-origin:80px 100px" d="M80 100C60 70 20 50 10 30L40 80Z" fill="url(#g3)" />
+    
+                                        <path class="v3f-w2" style="transform-origin:85px 110px" d="M85 110C60 130 30 150 20 170L50 120Z" fill="url(#g3)" />
+    
+                                    </g>
+                                    <path d="M90 130L70 140L50 145" stroke="#37474f" stroke-width="12" fill="none" stroke-linecap="round" />
+    <path d="M50 145L35 150" stroke="#263238" stroke-width="14" stroke-linecap="round" />
+    
+                                    <path class="v1f-sc" style="animation:scarfFlutter .3s infinite alternate;transform-origin:105px 95px" d="M105 95Q60 95 30 90" stroke="#eceff1" stroke-width="8" fill="none" stroke-linecap="round" />
+    
+                                    <rect x="90" y="90" width="35" height="45" rx="5" fill="#1565c0"></rect>
+                                    <rect x="95" y="90" width="25" height="45" rx="2" fill="#cfd8dc"></rect>
+                                    <path d="M90 90L107 110L125 90" fill="#1565c0" />
+    
+                                    <rect x="90" y="130" width="35" height="8" fill="#263238"></rect>
+                                    <path d="M110 135L90 150L70 160" stroke="#37474f" stroke-width="12" fill="none" stroke-linecap="round" />
+    <path d="M70 160L55 165" stroke="#263238" stroke-width="14" stroke-linecap="round" />
+    
+                                    <g transform="translate(107, 75)"><circle cx="0" cy="0" r="18" fill="#ffe0bd"></circle><path d="M-18 -5L18 -5L22 -15L-22 -15Z" fill="#1a237e" />
+    <path d="M-15 -15L-12 -35L12 -35L15 -15Z" fill="#0d47a1" />
+    <rect x="-14" y="-20" width="28" height="5" fill="#fff"></rect>
+  </g>
+                                    <path d="M115 100L140 90L160 85" stroke="#1565c0" stroke-width="10" fill="none" stroke-linecap="round" />
+    <circle cx="160" cy="85" r="6" fill="#ffe0bd"></circle>
+                                </g>
+                            </g>
+                        </svg>
